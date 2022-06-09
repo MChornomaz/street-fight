@@ -1,157 +1,117 @@
 import { controls } from '../../constants/controls';
 
-const pressedButtons = new Set();
-
 export async function fight(firstFighter, secondFighter) {
   return new Promise((resolve) => {
-    // resolve the promise with the winner when fight is over
-    firstFighter = createFighterContainer(firstFighter, 'left');
-    secondFighter = createFighterContainer(secondFighter, 'right');
 
-    keydownAttackHandler = keydownAttackHandler.bind(null, firstFighter, secondFighter, resolve);
-    keydownBlockHandler = keydownBlockHandler.bind(null, firstFighter, secondFighter);
-    keydownCriticalAttackHandler = keydownCriticalAttackHandler.bind(null, firstFighter, secondFighter, resolve);
-    keyupHandler = keyupHandler.bind(null, firstFighter, secondFighter);
+    beforeStart(firstFighter, secondFighter);
 
-    document.addEventListener('keydown', keydownBlockHandler, false);
-    document.addEventListener('keydown', keydownAttackHandler, false);
-    document.addEventListener('keydown', keydownCriticalAttackHandler, false);
-    document.addEventListener('keyup', keyupHandler, false);
+    const firstFighterHealthBar = document.getElementById('left-fighter-indicator');
+    const secondFighterHealthBar = document.getElementById('right-fighter-indicator');
+
+    const hit = (attacker, defender, getCurrentDamage, bar, isCrit) => {
+
+      if((!attacker.isBlock && !defender.isBlock) || isCrit) {
+        defender.currenthealth -= getCurrentDamage(attacker, defender);
+        bar.style.width = defender.currenthealth >= 0 ? `${defender.currenthealth / defender.health * 100}%` : '0%';
+      }
+
+      if (defender.currenthealth <= 0) {
+        resolve(attacker);
+      }
+    }
+
+    document.addEventListener('keydown', event => {
+      switch (event.code) {
+        case controls.PlayerOneBlock:
+          firstFighter.isBlock = true;
+          break;
+        case controls.PlayerTwoBlock:
+          secondFighter.isBlock = true;
+          break;
+        default:
+          if (controls.PlayerOneCriticalHitCombination.includes(event.code)) {
+            tryToCriticalHit(firstFighter, secondFighter, hit, secondFighterHealthBar, event.code, controls.PlayerOneCriticalHitCombination);
+          }
+          if (controls.PlayerTwoCriticalHitCombination.includes(event.code)) {
+            tryToCriticalHit(secondFighter, firstFighter, hit, firstFighterHealthBar, event.code, controls.PlayerTwoCriticalHitCombination);
+          }
+          break;
+      }
+    });
+
+    document.addEventListener('keyup', event => {
+      switch (event.code) {
+        case controls.PlayerOneAttack:
+          hit(firstFighter, secondFighter, getDamage, secondFighterHealthBar);
+          break;
+        case controls.PlayerOneBlock:
+          firstFighter.isBlock = false;
+          break;
+        case controls.PlayerTwoAttack:
+          hit(secondFighter, firstFighter, getDamage, firstFighterHealthBar);
+          break;
+        case controls.PlayerTwoBlock:
+          secondFighter.isBlock = false;
+          break;
+        default:
+          if (controls.PlayerOneCriticalHitCombination.includes(event.code)) {
+            collectCriticalCombo(firstFighter, event.code);
+          }
+          if (controls.PlayerTwoCriticalHitCombination.includes(event.code)) {
+            collectCriticalCombo(secondFighter, event.code);
+          }
+          break;
+      }
+    });
   });
 }
 
-function createFighterContainer(fighter, position) {
-  return {
-    entity: fighter,
-    health: fighter.health,
-    healthIndicator: document.querySelector(`#${position}-fighter-indicator`),
-    isBlocking: false,
-    canDoCriticalHit: true
-  }
+export function getDamage(attacker, defender) {
+  const damage = getHitPower(attacker) - getBlockPower(defender);
+  return damage >= 0 ? damage : 0;
 }
 
-function keydownAttackHandler(firstFighter, secondFighter, resolve, event) {
-  let code = event.code;
-
-  if (code === controls.PlayerOneAttack) {
-    if (!firstFighter.isBlocking && !secondFighter.isBlocking) {
-        secondFighter.health -= Math.min(getDamage(firstFighter.entity, secondFighter.entity), secondFighter.health);
-        secondFighter.healthIndicator.style.width = `${100 / secondFighter.entity.health * secondFighter.health}%`;
-        if (secondFighter.health == 0) {
-          clearFightEvents();
-          resolve(firstFighter.entity);
-        }
-        
-    }
-  }
-
-  if (code === controls.PlayerTwoAttack) {
-    if (!secondFighter.isBlocking && !firstFighter.isBlocking) {
-        firstFighter.health -= Math.min(getDamage(secondFighter.entity, firstFighter.entity), firstFighter.health);
-        firstFighter.healthIndicator.style.width = `${100 / firstFighter.entity.health * firstFighter.health}%`;
-        if (firstFighter.health == 0) {
-          clearFightEvents();
-          resolve(secondFighter.entity);
-        }
-    }
-  }
+export function getHitPower(fighter) {
+  return fighter.attack * Math.random() + 1;
 }
 
-function keydownCriticalAttackHandler(firstFighter, secondFighter, resolve, event) {
-  let code = event.code;
-
-  pressedButtons.add(code);
-
-  const isSubset = (combination) => combination.every(buttonKey => pressedButtons.has(buttonKey));
-
-  const setCriticalHitTimeout = (fighter, time) => {
-    setTimeout(() => {
-      fighter.canDoCriticalHit = true;
-    }, time)
-  }
-
-  if (isSubset(controls.PlayerOneCriticalHitCombination) && firstFighter.canDoCriticalHit) {
-    secondFighter.health -= Math.min(getCriticalDamage(firstFighter.entity), secondFighter.health);
-    secondFighter.healthIndicator.style.width = `${100 / secondFighter.entity.health * secondFighter.health}%`;
-    firstFighter.canDoCriticalHit = false;
-    setCriticalHitTimeout(firstFighter, 10000);
-    if (secondFighter.health == 0) {
-      clearFightEvents();
-      resolve(firstFighter.entity);
-    }
-  }
-
-  if (isSubset(controls.PlayerTwoCriticalHitCombination) && secondFighter.canDoCriticalHit) {
-    firstFighter.health -= Math.min(getCriticalDamage(secondFighter.entity), firstFighter.health);
-    firstFighter.healthIndicator.style.width = `${100 / firstFighter.entity.health * firstFighter.health}%`;
-    secondFighter.canDoCriticalHit = false;
-    setCriticalHitTimeout(secondFighter, 10000);
-    if (firstFighter.health == 0) {
-      clearFightEvents();
-      resolve(secondFighter.entity);
-    }
-  }
-}
-
-function keydownBlockHandler(firstFighter, secondFighter, event) {
-  let code = event.code;
-
-  if (code === controls.PlayerOneBlock) {
-    firstFighter.isBlocking = true;
-  }
-    
-  if (code === controls.PlayerTwoBlock) {
-    secondFighter.isBlocking = true;
-  }
-}
-
-
-function keyupHandler(firstFighter, secondFighter, event) {
-  let code = event.code;
-  
-  pressedButtons.delete(code);
-  
-  if (code === controls.PlayerOneBlock) {
-    firstFighter.isBlocking = false;
-  }
-
-  if (code === controls.PlayerTwoBlock) {
-    secondFighter.isBlocking = false;
-  }
-}
-
-function clearFightEvents() {
-  document.removeEventListener('keydown', keydownAttackHandler, false);
-  document.removeEventListener('keydown', keydownCriticalAttackHandler, false);
-  document.removeEventListener('keydown', keydownBlockHandler, false);
-  document.removeEventListener('keyup', keyupHandler, false);
-}
-function getRandomNumber(min, max) {
-  return Math.random() * (max - min) + min;
+export function getBlockPower(fighter) {
+  return fighter.defense * Math.random() + 1;
 }
 
 function getCriticalDamage(fighter) {
   return fighter.attack * 2;
 }
 
-export function getDamage(attacker, defender) {
-  const damage = getHitPower(attacker) - getBlockPower(defender);
-  return damage > 0 ? damage : 0;
+function checkComboEquality(pressedCombo, expectedCombo) {
+  return expectedCombo.every(value => pressedCombo.includes(value));
 }
 
-export function getHitPower(fighter) {
-  return fighter.attack * getCriticalHitChance();
+function collectCriticalCombo(fighter, keyPressed) {
+  if (!fighter.pressedCombo) fighter.pressedCombo = new Set();
+  fighter.pressedCombo.has(keyPressed) ? fighter.pressedCombo.delete(keyPressed) : fighter.pressedCombo.add(keyPressed);
 }
 
-export function getBlockPower(fighter) {
-  return fighter.defense * getDodgeChance();
+function tryToCriticalHit(attacker, defender, makeHit, bar, keyPressed, combo) {
+  collectCriticalCombo(attacker, keyPressed);
+
+  const { isCriticalActive, isBlock } = attacker;
+
+  if (checkComboEquality(Array.from(attacker.pressedCombo), combo) && isCriticalActive && !isBlock) {
+    makeHit(attacker, defender, getCriticalDamage, bar, true);
+    attacker.isCriticalActive = false;
+    setTimeout(() => attacker.isCriticalActive = true, 10000);
+  }
 }
 
+function beforeStart(firstFighter, secondFighter) {
+  if (firstFighter === secondFighter) {
+    firstFighter = { ...firstFighter }
+  }
 
-function getCriticalHitChance() {
-  return getRandomNumber(1, 2);
-}
+  firstFighter.currenthealth = firstFighter.health;
+  secondFighter.currenthealth = secondFighter.health;
 
-function getDodgeChance() {
-  return getRandomNumber(1, 2);
+  firstFighter.isCriticalActive = true;
+  secondFighter.isCriticalActive = true;
 }
